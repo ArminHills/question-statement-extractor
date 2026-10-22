@@ -1,0 +1,11 @@
+# وابستگی‌های فعلی مخزن (نسخه‌ها را با requirements.txt خودتان یکی کنید)
+pypdf
+python-docx
+python-dotenv
+google-genai
+# تازه
+pypdfium2
+pydantic>=2
+rapidfuzz
+pyyaml
+pytest

@@ -1,17 +1,17 @@
 # DESIGN.md — ابزار بانک گزاره و مسئله‌ی کنکور زیست
 
-## وضعیت (پایان M2)
+## وضعیت (پایان M3)
 | بخش | وضعیت |
 |---|---|
-| truth_rules، normalize، cache، state، client/retry/runner، رفع باگ‌های الف/ب/پ/ت | تست‌شده (M1) |
-| assemble (stitching، اتصال، manifest، گزارش مشکل) | تست‌شده |
-| extract (prompt نسخه‌دار، اعتبارسنج صفحه، رندر/برش شکل با pypdfium2، state، docx اختیاری) | تست‌شده با Mock و PDF ساختگی واقعی |
-| CLI `python -m exambank` (زیردستورها + شکل قدیمی `-n -m -i -p -o --restart`) | تست‌شده با Mock |
-| `GeminiClient` واقعی، کیفیت واقعی prompt، مختصات bbox روی PDF واقعی | **اجرا نشده** (نیاز به کلید/شبکه؛ مرحله‌ی چشمی در smoke_test.md) |
-| مدل‌های Pydantic (`build_pydantic_models`) | نوشته شد؛ تست‌شان `skip` می‌شود مگر pydantic نصب باشد (در محیط نویسنده نبود) |
-| classify، atomize، problems، validate/dedupe/export/review، taxonomy، evaluate، GUI، wrapper نازک | **هنوز نوشته نشده** (M3 تا M5) |
+| truth_rules، normalize، parsing، cache، state، client/retry/runner، رفع باگ‌های الف/ب/پ/ت | تست‌شده |
+| extract، assemble، CLI، docx اختیاری (M2) | تست‌شده با Mock و PDF ساختگی؛ در محیط شما سبز بود |
+| taxonomy (`build-taxonomy`، بارگذاری/اعتبارسنجی، شناسه‌های پایدار) | تست‌شده با Mock و داده‌ی **ساختگی**؛ taxonomy واقعی هنوز ساخته نشده (نیاز به صفحه‌های فهرست شما) |
+| classify | تست‌شده با Mock |
+| atomize (گزاره‌ها) و problems (مسئله‌ها) و راستی‌آزمایی ادعاهای LLM | تست‌شده با Mock؛ ۴ جهش عمدی در منطق اصلی همگی توسط تست‌ها گرفته شد |
+| `GeminiClient` واقعی، کیفیت واقعی prompt‌ها (extract/classify/atomize/problem/toc)، bbox روی PDF واقعی | **اجرا نشده** (کلید/شبکه ندارم) |
+| validate/dedupe/export/review_queue/merge/SCHEMA.md/schema/*.schema.json، evaluate، GUI، wrapper نازک | **هنوز نوشته نشده** (M4 و M5) |
 
-`Extraction.WorkFlow.py` هنوز دست‌نخورده است (CLI/GUI قدیمی مثل قبل کار می‌کنند). همان CLI قدیمی با `python -m exambank -n ... -i ... -p ... -o ...` هم اجرا می‌شود (extract + docx). تبدیل فایل قدیمی به wrapper نازک همراه GUI در M5 انجام می‌شود.
+`Extraction.WorkFlow.py` هنوز دست‌نخورده است. همه‌ی قابلیت‌ها از `python -m exambank` در دسترس‌اند.
 
 ## معماری
 `exambank/` ماژول‌های: `constants` `utils` `normalize` `truth_rules` `cache` `state` `client` `runner` `assemble` (و بعداً `schemas` `stages/*` `cli` `gui`).
@@ -32,6 +32,16 @@
 11. **شکل‌ها**: `box_2d=[ymin,xmin,ymax,xmax]` مقیاس ۰..۱۰۰۰ (مستندات رسمی Gemini برای *تصویر*). برای PDF تأیید نشده؛ پس bbox نامعتبر یا کوچک‌تر از ۱٪ صفحه ← ذخیره‌ی کل صفحه با `bbox_status=full_page_fallback`. figure_id را کد می‌سازد: `<pdf>-p<صفحه>-f<n>`. توضیح فارسی شکل `is_ai_description=true` است و هرگز مبنای truth نیست.
 12. **کش مشترک** در `<output_dir>/.llm_cache` است، نه داخل پروژه. `--restart` فقط state را پاک می‌کند؛ اجرای دوباره با ورودی/prompt/مدل یکسان سهمیه مصرف نمی‌کند.
 13. **manifest** نمونه: `manifest.example.yaml`.
+
+14. **classify کلید را نمی‌بیند**: ورودی فقط صورت سوال، گزینه‌ها و شکل‌هاست؛ پس polarity فقط از صورت سوال می‌آید و کلید روی آن اثر نمی‌گذارد. خروجی خام LLM در `work/classify/<qid>.json` ذخیره می‌شود و پرچم‌های قاعده‌محور هنگام جمع‌کردن (`gather_classified`) اعمال می‌شوند؛ تغییر قواعد نیاز به فراخوانی دوباره ندارد.
+15. **پرچم‌های classify**: `polarity_evidence_not_found` (نقل در صورت سوال نیست)، `polarity_disagreement` (نشانه‌های واژگانی صورت سوال با polarity نمی‌خواند؛ «به‌جز» نشانه‌ی قوی منفی است و در بدترین حالت یک پرچم اضافه می‌دهد)، `polarity_missing`، `structure_option_mismatch`، `route_structure_mismatch`، `figure_context_mismatch`. `topic_ids` نامعتبر (خارج از taxonomy) = پاسخ نامعتبر = شکست و تلاش ترمیمی، نه پرچم.
+16. **LLM هرگز truth نمی‌دهد**. در atomize فقط متن می‌سازد و حکم صریح پاسخ تشریحی را با `evidence` گزارش می‌کند. کد این‌ها را راستی‌آزمایی می‌کند: evidence و why_false باید عیناً (با تطبیق بی‌حساس به نشانه‌گذاری/نیم‌فاصله/ی‌ک/ارقام) در پاسخ تشریحی باشند وگرنه نادیده گرفته می‌شوند و `evidence_not_found` / `why_false_not_found` ثبت می‌شود؛ متن آیتم‌ها باید در صورت سوال باشد (`item_text_not_in_stem`)؛ `text_original` گزینه‌ها از منبع می‌آید، نه از LLM؛ `text_standalone` با نسبت واژه‌ی تازه (>۰٫۵) به `standalone_adds_words` پرچم می‌خورد؛ `context_ref` باید یکی از figure_idهای همان سوال یا `shared_scenario` باشد.
+17. **معنای گزینه‌های combo/count**: تحلیل‌گر قاعده‌محور (`parsing.py`) اولویت دارد؛ معنای LLM فقط وقتی استفاده می‌شود که تحلیل‌گر نتواند (و آن‌گاه `option_semantics_llm_only`) یا برای cross-check (`option_parse_disagreement`، تحلیل‌گر برنده است). پرچم فقط برای گزینه‌ی کلید زده می‌شود. تحلیل‌گر عدد را تا «هشت» و برچسب‌های موارد را فقط از همان‌هایی که LLM از صورت سوال گزارش کرده می‌پذیرد؛ چیز دیگری ← null.
+18. **تجزیه‌ی گزینه‌ی مرکب** (`parts`) فقط وقتی پذیرفته می‌شود که هر جزء حکم صریح با evidence تأییدشده داشته باشد و متن جزء در متن گزینه باشد؛ وگرنه گزینه مرکب (`is_atomic=false`) و کامل می‌ماند (`parts_rejected`). جزءها با `parent_statement_id` و `statement_id` به شکل `<parent>_p<k>` ثبت می‌شوند.
+19. **شناسه‌ها**: `question_id = <exam_id>_q<NNN>`؛ گزاره‌ی گزینه `…_o<برچسب>`؛ گزاره‌ی مورد (الف..د) `…_i<شماره‌ی ترتیبی>` (ASCII پایدار؛ برچسب فارسی در `source.option_label`)؛ مسئله `…_prob`. mixed هم در statements و هم در problems می‌آید.
+20. **فیلدهای افزوده به statement** (به قرارداد حداقلی اضافه شدند، چیزی حذف نشد): `truth_evidence`، `distractor_type`، `parent_statement_id`، `polarity`. فیلدهای افزوده به problem: `stem_original`، `answer_status`، `options[].text_original`.
+21. **کلاس مسئله** قابل‌گسترش است: نام snake_case جدید پذیرفته و با `new_problem_class` پرچم می‌خورد. نوع جدیدی برای `question_type` یا `structure` اضافه نشد.
+22. **محدودیت‌های شناخته‌شده**: `batch_size` غیر از 1 هنوز پیاده‌سازی نشده (هشدار می‌دهد و یک سوال در هر فراخوانی اجرا می‌کند)؛ classify/atomize از `response_schema` استفاده نمی‌کنند و مسیر «JSON + اعتبارسنج + یک ترمیم» را می‌روند؛ ویرایش دستی بازبین (`import-review`) و حفظ آن در اجرای دوباره در M4 است.
 
 ## قراردادهای داده
 در M2 با Pydantic ثبت می‌شود؛ قرارداد حداقلی prompt شما حفظ و فقط فیلد اضافه می‌شود.

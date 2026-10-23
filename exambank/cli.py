@@ -17,10 +17,10 @@ from .config import load_config
 from .state import StateStore
 from .stages.assemble import load_pages, run_assemble
 from .stages.extract import extract_pages, pdf_key_from_path
-from .utils import is_valid_name_component, parse_pages_input
+from .utils import is_valid_name_component, parse_pages_input, read_json
 
-COMMANDS = ("extract", "assemble", "run-all")
-KNOWN_STAGES = ("extract", "assemble")  # بقیه‌ی مرحله‌ها در milestoneهای بعد اضافه می‌شوند
+COMMANDS = ("extract", "assemble", "classify", "atomize", "run-all", "build-taxonomy")
+KNOWN_STAGES = ("extract", "assemble", "classify", "atomize")  # validate/export در M4
 
 
 def build_parser():
@@ -43,6 +43,11 @@ def build_parser():
     p.add_argument("--group", help="گروه آزمون")
     p.add_argument("--stages", help="مراحل run-all، با ویرگول: extract,assemble")
     p.add_argument("--docx", action="store_true", help="خروجی docx خواندنی هم بساز")
+    p.add_argument("--taxonomy", help="مسیر taxonomy/biology.json (پیش‌فرض: کنار برنامه)")
+    p.add_argument("--book-id", help="build-taxonomy: شناسه‌ی کتاب، مثل bio10")
+    p.add_argument("--grade", type=int, help="build-taxonomy: پایه (10، 11 یا 12)")
+    p.add_argument("--book-title", help="build-taxonomy: عنوان کتاب")
+    p.add_argument("--force", action="store_true", help="build-taxonomy: جایگزینی کتاب موجود")
     return p
 
 
@@ -53,17 +58,30 @@ def _make_manifest(args, pdf_key):
     return Manifest.single(exam_id, args.year, args.group, default_pdf=pdf_key)
 
 
+def _make_client(args, cfg, cache, client_factory, log, model):
+    if client_factory:
+        return client_factory(cfg, cache)
+    from .keys import get_api_key_cli
+    from .client import GeminiClient
+    key = get_api_key_cli()
+    if not key:
+        log("[FATAL] کلید API پیدا نشد. GEMINI_API_KEY را در محیط یا فایل .env بگذارید.")
+        return None
+    return CachedClient(GeminiClient(key, model, log=log), cache, model)
+
+
 def run_pipeline(args, *, client_factory=None, log=print, stop_event=None, sleep=None):
     """اجرای مراحل. client_factory(cfg, cache) -> LLMClient برای تست با Mock. خروجی: کد خروج."""
     cfg = load_config(args.config)
     legacy = args.command is None
     command = args.command or "extract"
     if command == "run-all":
-        stages = [s.strip() for s in (args.stages or "extract,assemble").split(",") if s.strip()]
+        stages = [s.strip() for s in (args.stages or ",".join(KNOWN_STAGES)).split(",") if s.strip()]
         bad = [s for s in stages if s not in KNOWN_STAGES]
         if bad:
             log(f"[FATAL] مرحله‌ی ناشناخته یا هنوز پیاده‌نشده: {bad}. مرحله‌های موجود: {list(KNOWN_STAGES)}")
             return 2
+        stages = [s for s in KNOWN_STAGES if s in stages]  # ترتیب ثابت
     else:
         stages = [command]
 
@@ -71,39 +89,59 @@ def run_pipeline(args, *, client_factory=None, log=print, stop_event=None, sleep
     project_dir.mkdir(parents=True, exist_ok=True)
     state = StateStore(project_dir / "state.json")
     pdf_key = pdf_key_from_path(args.pdf) if args.pdf else None
+    cache = DiskCache(Path(args.output_dir) / ".llm_cache")
+    delay = cfg["request_delay_seconds"]
+    if cfg.get("batch_size", 1) != 1:
+        log("[WARN] batch_size غیر از 1 هنوز پیاده‌سازی نشده؛ یک سوال در هر فراخوانی اجرا می‌شود.")
+    skw = dict(sleep=sleep) if sleep else {}
+    common = dict(log=log, delay=delay, stop_event=stop_event,
+                  max_consecutive_rate_limits=cfg["max_consecutive_rate_limits"], **skw)
     ok = True
+
+    def stopped(summary, name):
+        log(f"[INFO] {name}: {len(summary.done)} انجام، {len(summary.skipped)} از قبل انجام‌شده، "
+            f"{len(summary.failed)} ناموفق، {len(summary.not_run)} اجرانشده."
+            + (f" علت توقف: {summary.stopped_reason}" if summary.stopped_reason else ""))
+        return bool(summary.stopped_reason)
+
+    if command == "build-taxonomy":
+        if not (args.pdf and args.pages and args.book_id and args.grade and args.book_title):
+            log("[FATAL] build-taxonomy به -i، -p، --book-id، --grade و --book-title نیاز دارد.")
+            return 2
+        from .stages.taxonomy_build import run_build_taxonomy
+        model = args.model or cfg["models"]["extract"]
+        client = _make_client(args, cfg, cache, client_factory, log, model)
+        if client is None:
+            return 1
+        from .taxonomy import TaxonomyInvalid
+        try:
+            summary, tax = run_build_taxonomy(
+                pdf_path=args.pdf, pages=parse_pages_input(args.pages), project_dir=project_dir, client=client,
+                model=model, state=state, book_id=args.book_id, title=args.book_title, grade=args.grade,
+                taxonomy_path=args.taxonomy, force=args.force, **common)
+        except TaxonomyInvalid as e:
+            log(f"[FATAL] {e}")
+            return 1
+        stopped(summary, "build-taxonomy")
+        return 0 if (summary.ok and tax) else 1
+
+    if args.restart:
+        for st in stages:
+            state.reset_stage(st)
+        log("[INFO] --restart: وضعیت مرحله‌ها پاک شد (پاسخ‌های کش‌شده دوباره مصرف سهمیه نمی‌کنند).")
 
     if "extract" in stages:
         if not args.pdf or not args.pages:
             log("[FATAL] برای extract گزینه‌های -i و -p لازم است.")
             return 2
-        pages = parse_pages_input(args.pages)
         model = args.model or cfg["models"]["extract"]
-        cache = DiskCache(Path(args.output_dir) / ".llm_cache")
-        if client_factory:
-            client = client_factory(cfg, cache)
-        else:
-            from .keys import get_api_key_cli
-            from .client import GeminiClient
-            key = get_api_key_cli()
-            if not key:
-                log("[FATAL] کلید API پیدا نشد. GEMINI_API_KEY را در محیط یا فایل .env بگذارید.")
-                return 1
-            client = CachedClient(GeminiClient(key, model, log=log), cache, model)
-        if args.restart:
-            state.reset_stage("extract")
-            log("[INFO] --restart: وضعیت extract پاک شد (پاسخ‌های کش‌شده دوباره مصرف سهمیه نمی‌کنند).")
-        kwargs = dict(sleep=sleep) if sleep else {}
-        summary = extract_pages(
-            pdf_path=args.pdf, pages=pages, project_dir=project_dir, client=client, model=model, state=state,
-            log=log, delay=cfg["request_delay_seconds"], stop_event=stop_event,
-            render_scale=cfg["render_scale"], max_consecutive_rate_limits=cfg["max_consecutive_rate_limits"],
-            **kwargs)
-        log(f"[INFO] extract: {len(summary.done)} انجام، {len(summary.skipped)} از قبل انجام‌شده، "
-            f"{len(summary.failed)} ناموفق، {len(summary.not_run)} اجرانشده."
-            + (f" علت توقف: {summary.stopped_reason}" if summary.stopped_reason else ""))
+        client = _make_client(args, cfg, cache, client_factory, log, model)
+        if client is None:
+            return 1
+        summary = extract_pages(pdf_path=args.pdf, pages=parse_pages_input(args.pages), project_dir=project_dir,
+                                client=client, model=model, state=state, render_scale=cfg["render_scale"], **common)
         ok = ok and summary.ok
-        if summary.stopped_reason:
+        if stopped(summary, "extract"):
             return 1  # با پاسخ ناقص مراحل بعد را اجرا نمی‌کنیم
     if (args.docx or legacy) and "extract" in stages:
         from .docx_out import write_docx
@@ -124,6 +162,41 @@ def run_pipeline(args, *, client_factory=None, log=print, stop_event=None, sleep
             log(f"[FATAL] {e}")
             return 1
         log(f"[INFO] assemble: {len(records)} سوال، {len(issues)} مورد در assemble_report.json")
+    if "classify" in stages:
+        from .stages.classify import run_classify
+        from .taxonomy import TaxonomyInvalid, TaxonomyMissing, load_taxonomy
+        if not (project_dir / "assembled.jsonl").exists():
+            log("[FATAL] assembled.jsonl نیست؛ ابتدا assemble را اجرا کنید.")
+            return 1
+        try:
+            tax = load_taxonomy(args.taxonomy)
+        except (TaxonomyMissing, TaxonomyInvalid) as e:
+            log(f"[FATAL] {e}")
+            return 1
+        model = cfg["models"]["classify"]
+        client = _make_client(args, cfg, cache, client_factory, log, model)
+        if client is None:
+            return 1
+        summary = run_classify(project_dir=project_dir, client=client, model=model, state=state, taxonomy=tax, **common)
+        ok = ok and summary.ok
+        if stopped(summary, "classify"):
+            return 1
+    if "atomize" in stages:
+        from .stages.atomize import run_atomize
+        if not (project_dir / "classified.jsonl").exists():
+            log("[FATAL] classified.jsonl نیست؛ ابتدا classify را اجرا کنید.")
+            return 1
+        model = cfg["models"]["atomize"]
+        client = _make_client(args, cfg, cache, client_factory, log, model)
+        if client is None:
+            return 1
+        summary = run_atomize(project_dir=project_dir, client=client, model=model, state=state, **common)
+        ok = ok and summary.ok
+        if stopped(summary, "atomize"):
+            return 1
+        rep = read_json(project_dir / "atomize_report.json") or {}
+        log(f"[INFO] atomize: {rep.get('statements', 0)} گزاره ({rep.get('statements_null_truth', 0)} با truth=null، "
+            f"{rep.get('statements_needs_review', 0)} نیازمند بازبینی)، {rep.get('problems', 0)} مسئله.")
     return 0 if ok else 1
 
 

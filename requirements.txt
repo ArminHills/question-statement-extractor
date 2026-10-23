@@ -3,9 +3,12 @@ pypdf
 python-docx
 python-dotenv
 google-genai
-# تازه
+# تازه (برنامه)
 pypdfium2
+pillow
 pydantic>=2
 rapidfuzz
 pyyaml
+# فقط برای تست‌ها (ساخت PDF ساختگی)
 pytest
+reportlab

@@ -171,12 +171,12 @@ class FigureTests(unittest.TestCase):
             from PIL import Image
             out = save_figures(pdf, "t", 4, tight, Path(d) / "f1", scale=1.0)
             with Image.open(Path(d) / "f1" / Path(out[0]["image_path"]).name) as im:
-                px = list(im.convert("L").getdata())
+                px = im.convert("L").tobytes()
             dark = sum(1 for v in px if v < 60) / len(px)
             self.assertGreater(dark, 0.95)
             out = save_figures(pdf, "t", 4, swapped, Path(d) / "f2", scale=1.0)
             with Image.open(Path(d) / "f2" / Path(out[0]["image_path"]).name) as im:
-                px = list(im.convert("L").getdata())
+                px = im.convert("L").tobytes()
             self.assertLess(sum(1 for v in px if v < 60) / len(px), 0.5)
 
 
@@ -199,6 +199,8 @@ class PipelineTests(unittest.TestCase):
              "--group", "تجربی", "--exam-id", "bio-1403-t", *extra])
 
     def run_it(self, *extra, command=None):
+        if command == "run-all" and "--stages" not in extra:
+            extra = (*extra, "--stages", "extract,assemble")
         a = self.args(*extra)
         if command:
             a.command = command
@@ -312,7 +314,7 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(any("extract" in m for m in self.logs))
 
     def test_unknown_stage_rejected(self):
-        self.assertEqual(self.run_it("--stages", "extract,classify", command="run-all"), 2)
+        self.assertEqual(self.run_it("--stages", "extract,validate", command="run-all"), 2)
 
 
 if __name__ == "__main__":

@@ -1,42 +1,51 @@
-# smoke_test.md — اجرای واقعی روی ۳ صفحه (تا پایان M2: extract + assemble)
+# smoke_test.md — اجرای واقعی روی ۳ صفحه (تا پایان M3)
 
 ## ۰) آماده‌سازی
 ```
 pip install -r requirements.txt
-python -m unittest discover -s tests -t .        # باید سبز باشد (pydantic نصب باشد، ۳ تست skip نمی‌شود)
+python -m unittest discover -s tests -t .        # باید بدون skip سبز باشد
 ```
-کلید را در فایل `.env` کنار برنامه بگذارید: `GEMINI_API_KEY=...` (یا در محیط).
+کلید: فایل `.env` کنار برنامه با `GEMINI_API_KEY=...`.
 
-## ۱) سه صفحه‌ی نماینده را انتخاب کنید
-بهتر است شامل این‌ها باشد: (الف) صفحه‌ای با سوال بریده‌شده بین دو صفحه، (ب) صفحه‌ای با شکل/نمودار، (پ) صفحه‌ی کلید پاسخ.
-مثال: صفحه‌های `41, 42` سوال و `87` کلید. اگر پاسخ در بخش جدا است، `manifest.example.yaml` را کپی و ویرایش کنید.
+## ۱) taxonomy (یک‌بار برای هر کتاب)
+صفحه‌های فهرست مطالب کتاب زیست دهم (و سپس یازدهم، دوازدهم) را انتخاب کنید:
+```
+python -m exambank build-taxonomy -n tax -i fehrest-10.pdf -p "3-4" -o D:\Projects --book-id bio10 --grade 10 --book-title "زیست‌شناسی دهم"
+```
+خروجی: `taxonomy\biology.json`. **حتماً با کتاب مقایسه کنید** (شماره‌ی فصل/گفتار، عنوان‌ها). برای کتاب بعدی همین دستور با `--book-id bio11 --grade 11 ...`.
 
-## ۲) extract
+## ۲) extract + assemble روی ۳ صفحه‌ی نماینده
+شامل: (الف) سوال بریده‌شده بین دو صفحه، (ب) صفحه‌ی دارای شکل، (پ) کلید پاسخ.
 ```
-python -m exambank extract -n smoke -i exam.pdf -p "41-42, 87" -o D:\Projects
+python -m exambank run-all -n smoke -i exam.pdf -p "41-42, 87" -o D:\Projects --exam-id bio-1403-t --year 1403 --group تجربی --stages extract,assemble
 ```
-انتظار: سه خط `[SUCCESS]`، سه فایل در `D:\Projects\smoke\pages\`. اگر خطای 429 روزانه گرفتید باید فوراً با پیام «سهمیه‌ی روزانه تمام شد» متوقف شود و `state.json` مقدار `quota` داشته باشد.
+بررسی چشمی (مهم‌ترین قدم): `pages\*.json` با PDF؛ ستون‌های جدول کلید؛ `figures\` (برش‌ها درست‌اند یا `full_page_fallback`؟ اگر همیشه fallback یا جابه‌جا بود، `pages\*.json` و `figures\*` را بدهید).
 
-## ۳) بررسی چشمی (مهم‌ترین قدم)
-1. `pages\*.json`: متن سوال‌ها را با PDF مقایسه کنید (عینیت، شماره، برچسب گزینه‌ها).
-2. صفحه‌ی بریده‌شده: `continues_on_next_page` و `continues_from_previous_page` درست باشد.
-3. صفحه‌ی کلید: هر خانه یک (number, correct) باشد؛ ستون‌ها جابه‌جا نشده باشند.
-4. **bbox شکل‌ها**: پوشه‌ی `figures\` را باز کنید. اگر برش‌ها درست‌اند (`bbox_status: cropped`) عالی است. اگر برش‌ها جابه‌جا/کوچک‌اند یا همیشه `full_page_fallback` می‌گیرید، یعنی چارچوب مختصات Gemini روی PDF با فرض ما (کل صفحه) نمی‌خواند؛ نمونه‌ی `pages\*.json` و `figures\*` را به من بدهید تا اصلاح کنم.
+## ۳) classify
+```
+python -m exambank classify -n smoke -o D:\Projects
+```
+بررسی: `classified.jsonl` — برای ۵ سوال چک کنید: `structure`، `polarity` و `polarity_evidence` (عبارت واقعاً در صورت سوال هست؟)، `route`، `topic_ids` (منطقی‌اند؟). `review_reasons` را بخوانید؛ `polarity_disagreement` یعنی نشانه‌های واژگانی و polarity مدل نمی‌خوانند.
 
-## ۴) assemble
+## ۴) atomize
 ```
-python -m exambank assemble -n smoke -i exam.pdf -o D:\Projects --exam-id bio-1403-t --year 1403 --group تجربی --layout auto
+python -m exambank atomize -n smoke -o D:\Projects
 ```
-(یا `--manifest manifest.yaml`). خروجی: `assembled.jsonl` و `assemble_report.json`. با سه صفحه‌ی نمونه ممکن است `missing_question_numbers` و `question_without_answer` بیاید؛ طبیعی است چون کل آزمون را نداده‌اید.
+بررسی `statements_raw.jsonl` و `problems_raw.jsonl` روی ۵ تا ۱۰ گزاره:
+1. `truth` را با کلید و polarity خودتان دستی حساب کنید و مقایسه کنید.
+2. `text_standalone`: بدون افزودن واقعیت؟ گزاره‌ی غلط «تصحیح» نشده؟
+3. گزاره‌هایی با `truth_basis: explanation`: `truth_evidence` واقعاً در پاسخ تشریحی PDF هست؟
+4. `atomize_report.json`: تعداد `statements_null_truth` و `statements_needs_review` (برای count_items میانی null طبیعی است).
+5. مسئله‌ها: `givens` و `asked` عین متن‌اند؟
 
 ## ۵) اجرای دوباره = بدون مصرف سهمیه
 ```
 python -m exambank run-all -n smoke -i exam.pdf -p "41-42, 87" -o D:\Projects --exam-id bio-1403-t
 ```
-باید همه‌ی صفحه‌ها `از قبل انجام‌شده` شوند و هیچ فراخوانی انجام نشود. با `--restart` هم باید از کش پاسخ بگیرد.
+همه‌ی مرحله‌ها باید `از قبل انجام‌شده` شوند و هیچ فراخوانی انجام نشود. `--restart` هم باید از کش پاسخ بگیرد.
 
 ## ۶) شکل قدیمی CLI
 ```
 python -m exambank -n Bio10.3 -i book.pdf -p "250-255, 260" -o D:\Projects
 ```
-extract + فایل `Bio10.3.docx` (و `python Extraction.WorkFlow.py ...` قدیمی هم تا M5 دست‌نخورده کار می‌کند).
+(extract + docx). `python Extraction.WorkFlow.py ...` قدیمی تا M5 دست‌نخورده کار می‌کند.

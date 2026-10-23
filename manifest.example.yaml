@@ -1,0 +1,17 @@
+# هر آزمون یک ورودی. صفحه‌ها نسبت به PDF هستند (۱-مبنا).
+exams:
+  - exam_id: bio-1402-t
+    year_jalali: 1402
+    group: تجربی
+    session: اول
+    textbook_edition: "1401"        # اختیاری
+    question_pages: "1-12"
+    answer_pages: "13-15"           # اگر پاسخ کنار سوال است، حذف یا همان question_pages
+  - exam_id: bio-1403-t
+    year_jalali: 1403
+    group: تجربی
+    question_pages: "16-27"
+    answer_pages: "28-30"
+    # دو PDF جدا: نام فایل‌ها بدون پسوند
+    # question_pdf: questions-1403
+    # answer_pdf: answers-1403

@@ -145,7 +145,8 @@ class CacheTests(unittest.TestCase):
             cache = DiskCache(d)
             k = make_key("t", "", [("text", "a")], "v", "m", "1")
             cache.put(k, {"a": 1})
-            open(cache._path(k), "w").write("{broken")
+            with open(cache._path(k), "w", encoding="utf-8") as f:
+                f.write("{broken")
             self.assertIsNone(cache.get(k))
 
 

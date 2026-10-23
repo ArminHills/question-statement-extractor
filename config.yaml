@@ -1,0 +1,11 @@
+# تنظیمات ابزار. نام مدل‌ها این‌جا تغییر می‌کند، نه در کد.
+models:
+  extract: gemini-3.5-flash-lite
+  classify: gemini-3.5-flash-lite
+  atomize: gemini-3.5-flash-lite
+request_delay_seconds: 3
+batch_size: 1                  # تعداد سوال در هر فراخوانی classify/atomize
+similarity_threshold: 90       # آستانه‌ی rapidfuzz (۰ تا ۱۰۰)
+expected_option_counts: [4]
+max_consecutive_rate_limits: 2 # چند 429 پیاپی را «تمام‌شدن سهمیه» بدانیم
+render_scale: 2.0

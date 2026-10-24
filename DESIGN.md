@@ -1,17 +1,16 @@
 # DESIGN.md — ابزار بانک گزاره و مسئله‌ی کنکور زیست
 
-## وضعیت (پایان M3)
+## وضعیت (پایان M4)
 | بخش | وضعیت |
 |---|---|
-| truth_rules، normalize، parsing، cache، state، client/retry/runner، رفع باگ‌های الف/ب/پ/ت | تست‌شده |
-| extract، assemble، CLI، docx اختیاری (M2) | تست‌شده با Mock و PDF ساختگی؛ در محیط شما سبز بود |
-| taxonomy (`build-taxonomy`، بارگذاری/اعتبارسنجی، شناسه‌های پایدار) | تست‌شده با Mock و داده‌ی **ساختگی**؛ taxonomy واقعی هنوز ساخته نشده (نیاز به صفحه‌های فهرست شما) |
-| classify | تست‌شده با Mock |
-| atomize (گزاره‌ها) و problems (مسئله‌ها) و راستی‌آزمایی ادعاهای LLM | تست‌شده با Mock؛ ۴ جهش عمدی در منطق اصلی همگی توسط تست‌ها گرفته شد |
-| `GeminiClient` واقعی، کیفیت واقعی prompt‌ها (extract/classify/atomize/problem/toc)، bbox روی PDF واقعی | **اجرا نشده** (کلید/شبکه ندارم) |
-| validate/dedupe/export/review_queue/merge/SCHEMA.md/schema/*.schema.json، evaluate، GUI، wrapper نازک | **هنوز نوشته نشده** (M4 و M5) |
+| truth_rules، normalize، parsing، cache، state، client/retry/runner، extract، assemble، classify، atomize، problems، taxonomy | تست‌شده (M1–M3؛ در محیط شما سبز) |
+| قرارداد رکوردها (`records.py`) + اعتبارسنج + `schema/*.schema.json` + `SCHEMA.md` خودکار | تست‌شده |
+| validate (schema، قواعد، پرچم‌ها، رد رکوردهای نامعتبر)، dedupe (+تعارض truth بین سال‌ها)، export، `review_queue.csv`، `import-review`، `merge`، `bank.sqlite`، `statements.csv` | تست‌شده با Mock؛ ۱۰ جهش عمدی توسط تست‌ها گرفته شد |
+| مدل‌های Pydantic ساخته‌شده از `records.py` (`to_pydantic`) | **اجرا نشده** (pydantic در محیط نویسنده نبود). تست parity (`test_pydantic_parity_when_installed`) روی ماشین شما اجرا می‌شود؛ و validate اختلاف را در `validation_report.json → pydantic` گزارش می‌کند |
+| `GeminiClient` واقعی، کیفیت واقعی همه‌ی prompt‌ها، bbox روی PDF واقعی، taxonomy واقعی | **اجرا نشده / ساخته نشده** (نیاز به کلید و صفحه‌های فهرست) |
+| evaluate با داده‌ی طلایی، GUI (ورودی‌های تازه)، تبدیل `Extraction.WorkFlow.py` به wrapper نازک، smoke_test نهایی | **هنوز نوشته نشده** (M5) |
 
-`Extraction.WorkFlow.py` هنوز دست‌نخورده است. همه‌ی قابلیت‌ها از `python -m exambank` در دسترس‌اند.
+`Extraction.WorkFlow.py` هنوز دست‌نخورده است؛ همه‌ی قابلیت‌ها از `python -m exambank` در دسترس‌اند.
 
 ## معماری
 `exambank/` ماژول‌های: `constants` `utils` `normalize` `truth_rules` `cache` `state` `client` `runner` `assemble` (و بعداً `schemas` `stages/*` `cli` `gui`).
@@ -43,5 +42,15 @@
 21. **کلاس مسئله** قابل‌گسترش است: نام snake_case جدید پذیرفته و با `new_problem_class` پرچم می‌خورد. نوع جدیدی برای `question_type` یا `structure` اضافه نشد.
 22. **محدودیت‌های شناخته‌شده**: `batch_size` غیر از 1 هنوز پیاده‌سازی نشده (هشدار می‌دهد و یک سوال در هر فراخوانی اجرا می‌کند)؛ classify/atomize از `response_schema` استفاده نمی‌کنند و مسیر «JSON + اعتبارسنج + یک ترمیم» را می‌روند؛ ویرایش دستی بازبین (`import-review`) و حفظ آن در اجرای دوباره در M4 است.
 
+23. **قرارداد واحد** (`records.py`): هر رکورد یک کلاس `Spec` با annotation‌های استاندارد است؛ اعتبارسنج خالص، مدل Pydantic (`to_pydantic`)، JSON Schema و جدول‌های SCHEMA.md همه از همان ساخته می‌شوند، پس ناسازگار نمی‌شوند. چرا Pydantic را مستقیم ننوشتم: نمی‌توانستم اجرایش کنم. **اعتبارسنج خالص مرجع پذیرش است**؛ Pydantic (اگر نصب باشد) بررسی دوم است و اختلافش فقط گزارش می‌شود، نه رد رکورد، تا خطای احتمالی در مدل‌های اجرا‌نشده کل خروجی را خراب نکند. فیلد بدون پیش‌فرض = الزامی (حتی Optional)؛ فیلد ناشناخته مجاز است.
+24. **افزودنی‌های enum** (هر دو فقط افزایشی): `truth_basis` مقدار `manual` (تعیین/تأیید بازبین انسانی) و `review_status` مقدار `rejected` (از statements.jsonl/problems.jsonl حذف و در `rejected_by_review.jsonl` می‌ماند). فیلد `review` (at، note، previous_truth، previous_basis) فقط روی رکوردهای دست‌خورده. `Problem.dedupe` اختیاری است.
+25. **جریان مرحله ۵**: `validate` از `*_raw.jsonl` به `validated/*.jsonl` می‌نویسد (پایه‌ی قبل از ویرایش و dedupe؛ هرگز تغییر نمی‌کند) و رکوردهای نامعتبر را در `rejected_invalid.jsonl` می‌گذارد. `export` پایه را می‌خواند ← ویرایش‌های بازبین را اعمال می‌کند ← dedupe و تعارض truth (روی truth ویرایش‌شده) ← اعتبارسنجی نهایی ← خروجی‌ها. dedupe عمداً در export است چون به ویرایش‌ها وابسته است و در merge باید روی کل بانک تکرار شود. export را می‌توان هر چند بار اجرا کرد.
+26. **خطا در برابر پرچم**: خطای schema/محتوا (نوع نادرست، فیلد الزامی، متن خالی، truth بدون basis، `truth_basis=explanation` بدون evidence، سوال والد غایب، id تکراری) ← رد. قواعد کسب‌وکار (`key_status_inconsistent`، `key_not_in_options`، `source_missing_year/group`، `topic_not_in_taxonomy`، `asm_*`) ← پرچم. مشکل‌های assemble سطح سوال (`PROPAGATED_ASSEMBLE_CODES`) به گزاره‌ها/مسئله‌های همان سوال می‌رسند؛ مشکل‌های سطح آزمون (شماره‌ی جاافتاده، سوال بدون پاسخ، ...) فقط ردیف `exam_issue` اطلاعاتی در review_queue هستند.
+27. **dedupe**: متن مبنا `text_standalone`. مراحل: hash نرمال‌شده (`exact`) ← شباهت تقریبی روی نماینده‌ها (`fuzzy`؛ rapidfuzz اگر نصب باشد، وگرنه difflib؛ نمره‌ها کمی فرق دارند، پس آستانه را با داده‌ی خودتان تنظیم کنید) با نامزدیابی از شاخص معکوس (مقیاس‌پذیر: ۳۰۰۰ گزاره < ۱ ثانیه). نگهبان‌ها: نفی (دارد/ندارد، است/نیست، فاقد، بدون...)، عدد، و جابه‌جایی ترتیب با واژه‌ی یکسان هرگز تقریباً-تکراری حساب نمی‌شوند. **قابل‌مقایسه نیست** (خوشه نمی‌شود): `standalone=false`، رد‌شده، و برای structure غیر از `single_best_statement` گزاره‌ای که `text_standalone` آن با `text_original` یکی است (بدون زمینه‌ی صورت سوال؛ وگرنه «مورد یک» از دو سوال یکی می‌شد). canonical = قدیمی‌ترین سال، سپس exam_id و شماره. **خوشه‌ی fuzzy فقط نامزد تکرار است** (دو جمله که فقط در یک واژه‌ی کلیدی فرق دارند ممکن است خوشه شوند و آن‌گاه تعارض truth برای بازبینی پرچم می‌خورد)؛ برای یکتاسازی محتاطانه فقط `match=exact` را به‌کار ببرید.
+28. **تعارض truth**: در یک خوشه اگر هم true و هم false (غیر null، غیر rejected) باشد، فقط گزاره‌های `pending` پرچم `cross_year_truth_conflict` می‌گیرند؛ اگر بازبین هر دو طرف را تأیید کرده باشد (تفاوت نسخه‌ی کتاب) پرچم نمی‌خورد و اگر یکی را اصلاح کند تعارض برطرف می‌شود. پرچم در هر export از نو محاسبه می‌شود.
+29. **بازبینی**: `review_queue.csv` (UTF-8 با BOM؛ ستون‌های `id, record_type, reasons, text, truth, source_page, exam_id, question_no, option_label, review_status, decision, truth_new, text_new, note`) فقط رکوردهای pending با پرچم + ردیف‌های `exam_issue` دارد. `import-review` ویرایش‌ها را در `review_edits.jsonl` (جدا از خروجی مراحل) نگه می‌دارد؛ جداکننده‌ی `,` `;` یا tab را خودکار تشخیص می‌دهد؛ ردیف‌های ناسازگار گزارش می‌شوند و بقیه ذخیره می‌شوند (کد خروج 1). تصمیم‌ها: `approved`/`edited`/`rejected` (و معادل‌های فارسی). تأییدشده ← `needs_review=false` با حفظ `review_reasons` به‌عنوان تاریخچه. فقط `truth` و `text_standalone` گزاره قابل‌ویرایش‌اند؛ مسئله فقط تأیید/رد می‌شود. هر ویرایش `fingerprint` (متن اصلی، question_id، برچسب گزینه، id) دارد؛ اگر متن رکورد بعداً عوض شود ویرایش اعمال نمی‌شود و `stale_review_edit` ثبت می‌شود. `text_standalone` در fingerprint نیست، پس بازنویسی LLM ویرایش را کهنه نمی‌کند.
+30. **merge**: روی `validated/` (پایه) و اتحاد `review_edits.jsonl` (تازه‌تر برنده) انجام می‌شود و سپس export روی بانک اصلی اجرا می‌شود؛ upsert با id پایدار (ورودی تازه جایگزین پایه می‌شود، ولی ویرایش بازبین جدا و دست‌نخورده است). بانک اصلی هم از `import-review` و `export` پشتیبانی می‌کند. dedupe و تعارض بین پروژه‌ها (سال‌ها) فقط این‌جا معنا پیدا می‌کند.
+31. **محدودیت‌ها**: کیفیت dedupe به کیفیت `text_standalone` وابسته است؛ `batch_size` غیر از ۱ هنوز پیاده‌سازی نشده؛ ویرایش مسئله فقط تأیید/رد است؛ `evaluate` در M5.
+
 ## قراردادهای داده
-در M2 با Pydantic ثبت می‌شود؛ قرارداد حداقلی prompt شما حفظ و فقط فیلد اضافه می‌شود.
+منبع: `exambank/records.py`؛ مستند خودکار: `SCHEMA.md` و `schema/*.schema.json` (در هر export ساخته می‌شوند). قرارداد حداقلی prompt شما حفظ شده و فقط فیلد/مقدار enum اضافه شده است (بندهای ۲۰ و ۲۴).

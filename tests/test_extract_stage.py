@@ -314,7 +314,7 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(any("extract" in m for m in self.logs))
 
     def test_unknown_stage_rejected(self):
-        self.assertEqual(self.run_it("--stages", "extract,validate", command="run-all"), 2)
+        self.assertEqual(self.run_it("--stages", "extract,bogus", command="run-all"), 2)
 
 
 if __name__ == "__main__":

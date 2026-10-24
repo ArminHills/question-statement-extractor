@@ -1,4 +1,4 @@
-# smoke_test.md — اجرای واقعی روی ۳ صفحه (تا پایان M3)
+# smoke_test.md — اجرای واقعی روی ۳ صفحه (تا پایان M4)
 
 ## ۰) آماده‌سازی
 ```
@@ -38,14 +38,40 @@ python -m exambank atomize -n smoke -o D:\Projects
 4. `atomize_report.json`: تعداد `statements_null_truth` و `statements_needs_review` (برای count_items میانی null طبیعی است).
 5. مسئله‌ها: `givens` و `asked` عین متن‌اند؟
 
-## ۵) اجرای دوباره = بدون مصرف سهمیه
+## ۵) validate و export
 ```
-python -m exambank run-all -n smoke -i exam.pdf -p "41-42, 87" -o D:\Projects --exam-id bio-1403-t
+python -m exambank validate -n smoke -o D:\Projects
+python -m exambank export -n smoke -o D:\Projects --sqlite
+```
+(یا یک‌جا: `run-all` که اکنون همه‌ی مرحله‌ها تا export را دارد.) بررسی:
+1. `validation_report.json`: `rejected` باید ۰ باشد؛ `pydantic.available` روی ماشین شما باید `true` و `disagreements` برابر ۰ باشد (اگر نه، نمونه‌ها را بدهید).
+2. `export_report.json`: تعداد گزاره، `statements_truth_known`، `statements_needs_review`.
+3. `SCHEMA.md` و `schema\*.schema.json`: قرارداد برای Frankenstein.
+
+## ۶) بازبینی انسانی
+`review_queue.csv` را با Excel باز کنید (فارسی درست دیده می‌شود). برای هر ردیف ستون‌های `decision` (approved / edited / rejected)، `truth_new` (true / false / null)، `text_new` و `note` را پر کنید و ذخیره کنید (CSV UTF-8؛ جداکننده‌ی `;` هم پذیرفته می‌شود). سپس:
+```
+python -m exambank import-review -n smoke -o D:\Projects --review-csv D:\Projects\smoke\review_queue.csv
+python -m exambank export -n smoke -o D:\Projects
+```
+بررسی: گزاره‌ی ویرایش‌شده `truth_basis: manual` و `review_status: edited` دارد؛ رد‌شده در `rejected_by_review.jsonl` است. **سپس کل pipeline را با `--restart` دوباره اجرا کنید؛ ویرایش‌ها باید باقی بمانند.**
+
+## ۷) اجرای دوباره = بدون مصرف سهمیه
+```
+python -m exambank run-all -n smoke -i exam.pdf -p "41-42, 87" -o D:\Projects --exam-id bio-1403-t --year 1403 --group تجربی
 ```
 همه‌ی مرحله‌ها باید `از قبل انجام‌شده` شوند و هیچ فراخوانی انجام نشود. `--restart` هم باید از کش پاسخ بگیرد.
 
-## ۶) شکل قدیمی CLI
+## ۸) ادغام چند سال (بانک اصلی)
+بعد از ساخت پروژه‌های جدا برای هر سال (هر کدام با `--exam-id` و `--year` خودش):
+```
+python -m exambank merge -n master -o D:\Projects --from D:\Projects\bio1402 D:\Projects\bio1403 --sqlite
+```
+در `D:\Projects\master\statements.jsonl` به `dedupe.occurrences` و `years` نگاه کنید؛ `cross_year_truth_conflict` را در `review_queue.csv` بررسی کنید.
+
+## ۹) شکل قدیمی CLI
 ```
 python -m exambank -n Bio10.3 -i book.pdf -p "250-255, 260" -o D:\Projects
 ```
 (extract + docx). `python Extraction.WorkFlow.py ...` قدیمی تا M5 دست‌نخورده کار می‌کند.
+

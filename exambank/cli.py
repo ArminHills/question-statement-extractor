@@ -19,8 +19,9 @@ from .stages.assemble import load_pages, run_assemble
 from .stages.extract import extract_pages, pdf_key_from_path
 from .utils import is_valid_name_component, parse_pages_input, read_json
 
-COMMANDS = ("extract", "assemble", "classify", "atomize", "run-all", "build-taxonomy")
-KNOWN_STAGES = ("extract", "assemble", "classify", "atomize")  # validate/export در M4
+COMMANDS = ("extract", "assemble", "classify", "atomize", "validate", "export", "run-all", "build-taxonomy",
+            "import-review", "merge")
+KNOWN_STAGES = ("extract", "assemble", "classify", "atomize", "validate", "export")
 
 
 def build_parser():
@@ -48,6 +49,9 @@ def build_parser():
     p.add_argument("--grade", type=int, help="build-taxonomy: پایه (10، 11 یا 12)")
     p.add_argument("--book-title", help="build-taxonomy: عنوان کتاب")
     p.add_argument("--force", action="store_true", help="build-taxonomy: جایگزینی کتاب موجود")
+    p.add_argument("--sqlite", action="store_true", help="export: bank.sqlite هم بساز")
+    p.add_argument("--review-csv", help="import-review: مسیر review_queue.csv ویرایش‌شده")
+    p.add_argument("--from", dest="sources", nargs="+", help="merge: پوشه‌ی پروژه‌هایی که ادغام می‌شوند")
     return p
 
 
@@ -125,6 +129,11 @@ def run_pipeline(args, *, client_factory=None, log=print, stop_event=None, sleep
         stopped(summary, "build-taxonomy")
         return 0 if (summary.ok and tax) else 1
 
+    if command == "import-review":
+        return _import_review(args, project_dir, log)
+    if command == "merge":
+        return _merge(args, project_dir, cfg, log)
+
     if args.restart:
         for st in stages:
             state.reset_stage(st)
@@ -197,7 +206,70 @@ def run_pipeline(args, *, client_factory=None, log=print, stop_event=None, sleep
         rep = read_json(project_dir / "atomize_report.json") or {}
         log(f"[INFO] atomize: {rep.get('statements', 0)} گزاره ({rep.get('statements_null_truth', 0)} با truth=null، "
             f"{rep.get('statements_needs_review', 0)} نیازمند بازبینی)، {rep.get('problems', 0)} مسئله.")
+    if "validate" in stages:
+        from .stages.validate import validate_project
+        from .taxonomy import DEFAULT_PATH, TaxonomyInvalid, TaxonomyMissing, load_taxonomy
+        tax = None
+        if args.taxonomy or DEFAULT_PATH.exists():
+            try:
+                tax = load_taxonomy(args.taxonomy)
+            except (TaxonomyMissing, TaxonomyInvalid) as e:
+                log(f"[FATAL] {e}")
+                return 1
+        else:
+            log("[WARN] taxonomy پیدا نشد؛ اعتبارسنجی topic_ids انجام نمی‌شود.")
+        try:
+            rep = validate_project(project_dir, tax, log=log)
+        except RuntimeError as e:
+            log(f"[FATAL] {e}")
+            return 1
+        log(f"[INFO] validate: {rep['statements']['valid']}/{rep['statements']['in']} گزاره، "
+            f"{rep['problems']['valid']}/{rep['problems']['in']} مسئله، {rep['questions']['valid']}/{rep['questions']['in']} سوال معتبر؛ "
+            f"{rep['rejected']} رد شد (rejected_invalid.jsonl).")
+        ok = ok and rep["rejected"] == 0
+    if "export" in stages:
+        from .stages.export import export_project
+        try:
+            export_project(project_dir, similarity_threshold=cfg["similarity_threshold"], sqlite=args.sqlite, log=log)
+        except RuntimeError as e:
+            log(f"[FATAL] {e}")
+            return 1
     return 0 if ok else 1
+
+
+def _import_review(args, project_dir, log):
+    from .review import build_edits_from_rows, load_edits, merge_edits, read_review_csv, record_id, save_edits
+    from .utils import read_jsonl
+    if not args.review_csv or not os.path.isfile(args.review_csv):
+        log("[FATAL] import-review به --review-csv (فایل موجود) نیاز دارد.")
+        return 2
+    base = project_dir / "validated"
+    if not (base / "statements.jsonl").exists():
+        log("[FATAL] validated/ نیست؛ ابتدا validate را اجرا کنید.")
+        return 1
+    recs = {record_id(r): r for f in ("statements", "problems") for r in read_jsonl(base / f"{f}.jsonl")}
+    new, errors, ignored = build_edits_from_rows(read_review_csv(args.review_csv), recs)
+    for e in errors:
+        log(f"[ERROR] {e}")
+    if new:
+        save_edits(project_dir, merge_edits(load_edits(project_dir), new))
+    log(f"[INFO] import-review: {len(new)} ویرایش ذخیره شد، {len(errors)} خطا، {ignored} ردیف اطلاعاتی نادیده گرفته شد. "
+        "برای اعمال: python -m exambank export ...")
+    return 1 if errors else 0
+
+
+def _merge(args, project_dir, cfg, log):
+    from .merge import merge_projects
+    if not args.sources:
+        log("[FATAL] merge به --from <پوشه‌ی پروژه> ... نیاز دارد.")
+        return 2
+    try:
+        merge_projects(project_dir, args.sources, similarity_threshold=cfg["similarity_threshold"],
+                       sqlite=args.sqlite, log=log)
+    except RuntimeError as e:
+        log(f"[FATAL] {e}")
+        return 1
+    return 0
 
 
 def main(argv=None):

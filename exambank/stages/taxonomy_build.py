@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ..normalize import normalize_text
 from ..prompts import load_prompt
+from ..client import request_counter_for
 from ..runner import run_items
 from ..taxonomy import DEFAULT_PATH, merge_toc_pages, save_book
 from ..utils import read_json, write_json
@@ -68,7 +69,8 @@ def run_build_taxonomy(*, pdf_path, pages, project_dir, client, model, state, bo
         log(f"[SUCCESS] فهرست صفحه {page}")
 
     summary = run_items([f"{book_id}:{p}" for p in valid], work, state, stage, log=log, delay=delay,
-                        stop_event=stop_event, sleep=sleep, max_consecutive_rate_limits=max_consecutive_rate_limits)
+                        stop_event=stop_event, sleep=sleep, max_consecutive_rate_limits=max_consecutive_rate_limits,
+                        request_counter=request_counter_for(client))
     if not summary.ok:
         log("[WARN] همه‌ی صفحه‌های فهرست موفق نبودند؛ taxonomy نوشته نشد.")
         return summary, None

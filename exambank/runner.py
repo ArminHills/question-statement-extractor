@@ -21,12 +21,15 @@ class RunSummary:
 
 
 def run_items(keys, fn, state, stage, log=print, delay=3, stop_event=None,
-              sleep=time.sleep, max_consecutive_rate_limits=2):
+              sleep=time.sleep, max_consecutive_rate_limits=2, request_counter=None):
+    """request_counter: تابعی که تعداد درخواست‌های واقعی شبکه تا الان را می‌دهد (مثلاً miss‌های کش). اگر داده شود،
+    فاصله‌ی delay فقط بعد از آیتمی اعمال می‌شود که واقعاً درخواست فرستاده باشد؛ پاسخ‌های کش‌شده صبر نمی‌خواهند."""
     s = RunSummary()
     if state.quota:
         log(f"[WARN] آخرین اجرا به‌دلیل سهمیه متوقف شده بود ({state.quota.get('reason')}). تلاش دوباره...")
     consecutive_429 = 0
     ran_any = False
+    last_made_request = True
     for i, key in enumerate(keys):
         if state.is_done(stage, key):
             s.skipped.append(key)
@@ -36,9 +39,10 @@ def run_items(keys, fn, state, stage, log=print, delay=3, stop_event=None,
             s.not_run = [k for k in keys[i:] if not state.is_done(stage, k)]
             log("[INFO] پردازش توسط کاربر متوقف شد.")
             return s
-        if ran_any and delay:
+        if ran_any and delay and last_made_request:
             sleep(delay)
         ran_any = True
+        before = request_counter() if request_counter else None
         try:
             fn(key)
         except LLMQuotaExhausted as e:
@@ -54,6 +58,7 @@ def run_items(keys, fn, state, stage, log=print, delay=3, stop_event=None,
             return s
         except LLMRateLimited as e:
             consecutive_429 += 1
+            last_made_request = True
             state.mark_failed(stage, key, e)
             s.failed.append(key)
             log(f"[ERROR] {key}: 429 پس از همه‌ی تلاش‌ها.")
@@ -69,10 +74,12 @@ def run_items(keys, fn, state, stage, log=print, delay=3, stop_event=None,
             state.mark_failed(stage, key, e)
             s.failed.append(key)
             log(f"[ERROR] {key}: {e}")
+            last_made_request = True if before is None else request_counter() > before
             continue
         consecutive_429 = 0
         if state.quota:
             state.clear_quota()
         state.mark_ok(stage, key)
         s.done.append(key)
+        last_made_request = True if before is None else request_counter() > before
     return s

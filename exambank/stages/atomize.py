@@ -15,6 +15,7 @@ from ..constants import SCHEMA_VERSION
 from ..normalize import normalize_label, normalize_text
 from ..parsing import contains_quote, novel_token_ratio, parse_combo_option, parse_count_option
 from ..prompts import load_prompt
+from ..client import request_counter_for
 from ..runner import run_items
 from ..truth_rules import COMBO_LIKE, COUNT_LIKE, SINGLE_LIKE, ComboOption, derive_truth
 from ..utils import read_json, read_jsonl, write_json, write_jsonl
@@ -391,7 +392,8 @@ def run_atomize(*, project_dir, client, model, state, log=print, delay=3, stop_e
         log(f"[SUCCESS] {key}")
 
     summary = run_items(keys, work, state, "atomize", log=log, delay=delay, stop_event=stop_event, sleep=sleep,
-                        max_consecutive_rate_limits=max_consecutive_rate_limits)
+                        max_consecutive_rate_limits=max_consecutive_rate_limits,
+                        request_counter=request_counter_for(client))
     build_outputs(project_dir)
     return summary
 

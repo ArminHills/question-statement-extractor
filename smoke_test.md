@@ -1,4 +1,4 @@
-# smoke_test.md — اجرای واقعی روی ۳ صفحه (تا پایان M4)
+# smoke_test.md — اجرای واقعی روی ۳ صفحه (نسخه‌ی نهایی)
 
 ## ۰) آماده‌سازی
 ```
@@ -69,9 +69,21 @@ python -m exambank merge -n master -o D:\Projects --from D:\Projects\bio1402 D:\
 ```
 در `D:\Projects\master\statements.jsonl` به `dedupe.occurrences` و `years` نگاه کنید؛ `cross_year_truth_conflict` را در `review_queue.csv` بررسی کنید.
 
-## ۹) شکل قدیمی CLI
+## ۹) ارزیابی با داده‌ی طلایی
+برای ۱۰–۳۰ سوال از همین آزمون دستی (از روی PDF، نه از خروجی ابزار) فایل `gold\mine.jsonl` را مطابق `gold\README.md` بنویسید و:
+```
+python -m exambank evaluate -n smoke -o D:\Projects --gold gold
+```
+مهم‌ترین اعداد: `answer_link.accuracy` (اتصال کلید)، `truth.precision` (وقتی ابزار truth می‌دهد چقدر درست است؟)،
+`truth.false_positive_on_gold_null` (باید ۰ باشد)، `review.error_catch_rate` (چند درصد خطاها پرچم بازبینی داشتند؟).
+
+## ۱۰) GUI
+`python Extraction.WorkFlow.py` (بدون آرگومان). یک‌بار پنجره را باز کنید و با ۳ صفحه‌ی همین تست، فقط «استخراج» را اجرا کنید؛
+باید همان رفتار قبلی را ببینید (نوار پیشرفت، گزارش زنده، فایل Word). بعد مراحل بیشتر را تیک بزنید. (کد ویجت‌ها در محیط توسعه اجرا نشده بود.)
+
+## ۱۱) شکل قدیمی CLI
 ```
 python -m exambank -n Bio10.3 -i book.pdf -p "250-255, 260" -o D:\Projects
 ```
-(extract + docx). `python Extraction.WorkFlow.py ...` قدیمی تا M5 دست‌نخورده کار می‌کند.
+(extract + docx). `python Extraction.WorkFlow.py -n ... -i ... -p ... -o ...` هم همان را اجرا می‌کند.
 

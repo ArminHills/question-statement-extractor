@@ -9,6 +9,7 @@ from ..client import LLMInvalidResponse
 from ..constants import PROMPT_VERSION, SCHEMA_VERSION
 from ..figures import save_figures
 from ..prompts import load_prompt
+from ..client import request_counter_for
 from ..runner import run_items
 from ..schemas import validate_page_payload
 from ..utils import write_json
@@ -76,5 +77,6 @@ def extract_pages(*, pdf_path, pages, project_dir, client, model, state, log=pri
 
     keys = [f"{pdf_key}:{p}" for p in valid]
     summary = run_items(keys, work, state, "extract", log=log, delay=delay, stop_event=stop_event,
-                        sleep=sleep, max_consecutive_rate_limits=max_consecutive_rate_limits)
+                        sleep=sleep, max_consecutive_rate_limits=max_consecutive_rate_limits,
+                        request_counter=request_counter_for(client))
     return summary

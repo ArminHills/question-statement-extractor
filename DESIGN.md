@@ -1,16 +1,14 @@
 # DESIGN.md — ابزار بانک گزاره و مسئله‌ی کنکور زیست
 
-## وضعیت (پایان M4)
+## وضعیت نهایی (پایان M5)
 | بخش | وضعیت |
 |---|---|
-| truth_rules، normalize، parsing، cache، state، client/retry/runner، extract، assemble، classify، atomize، problems، taxonomy | تست‌شده (M1–M3؛ در محیط شما سبز) |
-| قرارداد رکوردها (`records.py`) + اعتبارسنج + `schema/*.schema.json` + `SCHEMA.md` خودکار | تست‌شده |
-| validate (schema، قواعد، پرچم‌ها، رد رکوردهای نامعتبر)، dedupe (+تعارض truth بین سال‌ها)، export، `review_queue.csv`، `import-review`، `merge`، `bank.sqlite`، `statements.csv` | تست‌شده با Mock؛ ۱۰ جهش عمدی توسط تست‌ها گرفته شد |
-| مدل‌های Pydantic ساخته‌شده از `records.py` (`to_pydantic`) | **اجرا نشده** (pydantic در محیط نویسنده نبود). تست parity (`test_pydantic_parity_when_installed`) روی ماشین شما اجرا می‌شود؛ و validate اختلاف را در `validation_report.json → pydantic` گزارش می‌کند |
-| `GeminiClient` واقعی، کیفیت واقعی همه‌ی prompt‌ها، bbox روی PDF واقعی، taxonomy واقعی | **اجرا نشده / ساخته نشده** (نیاز به کلید و صفحه‌های فهرست) |
-| evaluate با داده‌ی طلایی، GUI (ورودی‌های تازه)، تبدیل `Extraction.WorkFlow.py` به wrapper نازک، smoke_test نهایی | **هنوز نوشته نشده** (M5) |
-
-`Extraction.WorkFlow.py` هنوز دست‌نخورده است؛ همه‌ی قابلیت‌ها از `python -m exambank` در دسترس‌اند.
+| تمام منطق خط‌لوله: truth_rules، normalize، parsing، cache، state، client/retry/runner، extract، assemble، classify، atomize، problems، taxonomy، validate، dedupe، export، review/import-review، merge، sqlite، schema/SCHEMA.md، evaluate، CLI، `form_to_argv` | تست‌شده (۲۹۱ تست، با Mock و PDF ساختگی واقعی؛ جهش‌های عمدی در منطق اصلی همگی توسط تست‌ها گرفته شد) |
+| wrapper نازک `Extraction.WorkFlow.py` (بدون آرگومان GUI، با آرگومان CLI) و CLI قدیمی `-n -m -i -p -o --restart` | تست‌شده (subprocess و `main()`؛ شامل docx و خط `[DONE]`) |
+| ویجت‌های GUI (`ExtractionApp`) | **اجرا نشده**: tkinter در محیط توسعه نبود. منطق فرم (`form_to_argv`) تست‌شده؛ خود پنجره را باید یک‌بار روی ویندوز خودتان باز کنید |
+| مدل‌های Pydantic (`to_pydantic`) | اجرا نشده در محیط توسعه؛ تست parity روی ماشین شما اجرا می‌شود (و ۴ skip نباید بماند)؛ validate اختلاف را گزارش می‌کند |
+| `GeminiClient` واقعی، کیفیت واقعی prompt‌ها، bbox شکل روی PDF واقعی | **اجرا نشده** (نیاز به کلید/PDF شما؛ `smoke_test.md`) |
+| taxonomy واقعی (`taxonomy/biology.json`) و gold واقعی | **ساخته نشده** (نیاز به صفحه‌های فهرست و برچسب‌های دستی شما) |
 
 ## معماری
 `exambank/` ماژول‌های: `constants` `utils` `normalize` `truth_rules` `cache` `state` `client` `runner` `assemble` (و بعداً `schemas` `stages/*` `cli` `gui`).
@@ -51,6 +49,11 @@
 29. **بازبینی**: `review_queue.csv` (UTF-8 با BOM؛ ستون‌های `id, record_type, reasons, text, truth, source_page, exam_id, question_no, option_label, review_status, decision, truth_new, text_new, note`) فقط رکوردهای pending با پرچم + ردیف‌های `exam_issue` دارد. `import-review` ویرایش‌ها را در `review_edits.jsonl` (جدا از خروجی مراحل) نگه می‌دارد؛ جداکننده‌ی `,` `;` یا tab را خودکار تشخیص می‌دهد؛ ردیف‌های ناسازگار گزارش می‌شوند و بقیه ذخیره می‌شوند (کد خروج 1). تصمیم‌ها: `approved`/`edited`/`rejected` (و معادل‌های فارسی). تأییدشده ← `needs_review=false` با حفظ `review_reasons` به‌عنوان تاریخچه. فقط `truth` و `text_standalone` گزاره قابل‌ویرایش‌اند؛ مسئله فقط تأیید/رد می‌شود. هر ویرایش `fingerprint` (متن اصلی، question_id، برچسب گزینه، id) دارد؛ اگر متن رکورد بعداً عوض شود ویرایش اعمال نمی‌شود و `stale_review_edit` ثبت می‌شود. `text_standalone` در fingerprint نیست، پس بازنویسی LLM ویرایش را کهنه نمی‌کند.
 30. **merge**: روی `validated/` (پایه) و اتحاد `review_edits.jsonl` (تازه‌تر برنده) انجام می‌شود و سپس export روی بانک اصلی اجرا می‌شود؛ upsert با id پایدار (ورودی تازه جایگزین پایه می‌شود، ولی ویرایش بازبین جدا و دست‌نخورده است). بانک اصلی هم از `import-review` و `export` پشتیبانی می‌کند. dedupe و تعارض بین پروژه‌ها (سال‌ها) فقط این‌جا معنا پیدا می‌کند.
 31. **محدودیت‌ها**: کیفیت dedupe به کیفیت `text_standalone` وابسته است؛ `batch_size` غیر از ۱ هنوز پیاده‌سازی نشده؛ ویرایش مسئله فقط تأیید/رد است؛ `evaluate` در M5.
+
+32. **GUI**: همان رابط قبلی (PDF، نام پروژه، صفحات، پوشه، مدل، شروع/توقف/باز کردن پوشه، پیشرفت، گزارش زنده) + حداقل افزوده: چک‌باکس مراحل (پیش‌فرض فقط «استخراج»+Word مثل قبل)، exam-id/سال/گروه، manifest، taxonomy، چیدمان، `sqlite`، `restart`. تبدیل فرم به آرگومان CLI فقط در `form_to_argv` است. تفاوت رفتاری: پرسش «ادامه از Word موجود؟» حذف شد، چون resume همیشه از `state.json` است و `--restart` چک‌باکس دارد. **پروژه‌های قدیمی (فقط docx) resume نمی‌شوند**: ابزار صفحه‌های JSON آن‌ها را ندارد و باید دوباره استخراج شود.
+33. **فاصله‌ی بین درخواست‌ها** فقط بعد از آیتمی اعمال می‌شود که واقعاً درخواست شبکه فرستاده (miss کش)؛ اجرای دوباره‌ی کاملاً کش‌شده صبر نمی‌کند (قبلاً به‌ازای هر صفحه ۳ ثانیه بیهوده).
+34. **evaluate**: gold = `gold/*.jsonl` با همان شناسه‌ها و فقط فیلدهای مورد نظر. معیارها: دقت اتصال پاسخ؛ دقت هر فیلد (structure، polarity، route، ...)؛ truth به‌صورت correct/wrong/abstained با precision، پوشش پاسخ و دقت کل (خودداری با null «خطا» نیست ولی در دقت کل «نشد» شمرده می‌شود)؛ `false_positive_on_gold_null` (ادعای truth جایی که پاسخنامه نمی‌گوید؛ خطرناک‌ترین حالت)؛ پیش‌بینی‌های `manual` از دقت حذف و جدا شمرده می‌شوند؛ درصد needs_review، سهم خطاهای truth که پرچم داشتند (`error_catch_rate`) و هشدار اضافی روی درست‌ها. فایل‌های `*.example` در `gold/` خوانده نمی‌شوند.
+35. **محدودیت‌های شناخته‌شده‌ی نهایی**: `batch_size` غیر از ۱ پیاده‌سازی نشده؛ کیفیت dedupe به `text_standalone` وابسته است؛ خوشه‌ی `fuzzy` فقط نامزد تکرار است؛ تحلیل‌گر عدد/برچسب گزینه‌ها محدود است (چیزی غیر از آن ← null و پرچم، نه حدس)؛ تشخیص سهمیه‌ی روزانه به متن خطای Gemini وابسته است (`_DAILY_RE`)؛ ویرایش مسئله فقط تأیید/رد است؛ نیم‌فاصله‌ی «تر/ترین/ها» روی واژه‌ی مستقل «تر» (خیس) خطا می‌کند.
 
 ## قراردادهای داده
 منبع: `exambank/records.py`؛ مستند خودکار: `SCHEMA.md` و `schema/*.schema.json` (در هر export ساخته می‌شوند). قرارداد حداقلی prompt شما حفظ شده و فقط فیلد/مقدار enum اضافه شده است (بندهای ۲۰ و ۲۴).

@@ -8,6 +8,7 @@ from pathlib import Path
 from ..normalize import normalize_text
 from ..parsing import contains_quote, options_look_like, polarity_hint
 from ..prompts import load_prompt
+from ..client import request_counter_for
 from ..runner import run_items
 from ..taxonomy import describe_for_prompt, topic_ids
 from ..utils import read_json, read_jsonl, write_json, write_jsonl
@@ -122,7 +123,8 @@ def run_classify(*, project_dir, client, model, state, taxonomy, log=print, dela
         log(f"[SUCCESS] {qid}: {cls['structure']} / {cls['route']} / {cls['polarity']}")
 
     summary = run_items(list(by_id), work, state, "classify", log=log, delay=delay, stop_event=stop_event,
-                        sleep=sleep, max_consecutive_rate_limits=max_consecutive_rate_limits)
+                        sleep=sleep, max_consecutive_rate_limits=max_consecutive_rate_limits,
+                        request_counter=request_counter_for(client))
     gather_classified(project_dir)
     return summary
 

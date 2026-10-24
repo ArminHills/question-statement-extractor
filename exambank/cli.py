@@ -20,7 +20,7 @@ from .stages.extract import extract_pages, pdf_key_from_path
 from .utils import is_valid_name_component, parse_pages_input, read_json
 
 COMMANDS = ("extract", "assemble", "classify", "atomize", "validate", "export", "run-all", "build-taxonomy",
-            "import-review", "merge")
+            "import-review", "merge", "evaluate")
 KNOWN_STAGES = ("extract", "assemble", "classify", "atomize", "validate", "export")
 
 
@@ -50,6 +50,7 @@ def build_parser():
     p.add_argument("--book-title", help="build-taxonomy: عنوان کتاب")
     p.add_argument("--force", action="store_true", help="build-taxonomy: جایگزینی کتاب موجود")
     p.add_argument("--sqlite", action="store_true", help="export: bank.sqlite هم بساز")
+    p.add_argument("--gold", help="evaluate: پوشه‌ی gold/*.jsonl (پیش‌فرض: gold/ کنار برنامه)")
     p.add_argument("--review-csv", help="import-review: مسیر review_queue.csv ویرایش‌شده")
     p.add_argument("--from", dest="sources", nargs="+", help="merge: پوشه‌ی پروژه‌هایی که ادغام می‌شوند")
     return p
@@ -133,6 +134,8 @@ def run_pipeline(args, *, client_factory=None, log=print, stop_event=None, sleep
         return _import_review(args, project_dir, log)
     if command == "merge":
         return _merge(args, project_dir, cfg, log)
+    if command == "evaluate":
+        return _evaluate(args, project_dir, log)
 
     if args.restart:
         for st in stages:
@@ -258,6 +261,17 @@ def _import_review(args, project_dir, log):
     return 1 if errors else 0
 
 
+def _evaluate(args, project_dir, log):
+    from .evaluate import run_evaluate
+    gold = args.gold or str(Path(__file__).resolve().parent.parent / "gold")
+    try:
+        run_evaluate(project_dir, gold, log=log)
+    except (RuntimeError, FileNotFoundError) as e:
+        log(f"[FATAL] {e}")
+        return 1
+    return 0
+
+
 def _merge(args, project_dir, cfg, log):
     from .merge import merge_projects
     if not args.sources:
@@ -280,6 +294,8 @@ def main(argv=None):
             pass
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command is None and not (args.pdf and args.pages):
+        parser.error("شکل قدیمی (بدون زیردستور) به -i و -p هم نیاز دارد؛ یا یک زیردستور بدهید (مثلاً export)")
     if not is_valid_name_component(args.name.strip()):
         parser.error('نام پروژه نامعتبر است (< > : " / \\ | ? *)')
     args.name = args.name.strip()
@@ -315,4 +331,8 @@ def main(argv=None):
                 t.join(0.2)
         except KeyboardInterrupt:
             return 130
+    if args.command is None:   # خط پایانی شکل قدیمی (سازگاری)
+        word = os.path.join(args.output_dir, args.name, f"{args.name}.docx")
+        print(("[DONE] Finished. Word file: " if result["code"] == 0 else
+               "[DONE] Finished with errors or was stopped. See the log above. Word file: ") + word, flush=True)
     return result["code"]

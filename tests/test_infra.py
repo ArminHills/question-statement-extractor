@@ -223,6 +223,46 @@ class Resume(unittest.TestCase):  # باگ‌های (پ) و (ت)
             self.assertEqual(s.done, [1, 2])
             self.assertEqual(s.not_run, [3])
 
+    def test_delay_skipped_after_cached_items(self):
+        """فاصله‌ی بین درخواست‌ها فقط بعد از آیتمی که واقعاً درخواست شبکه فرستاده؛ پاسخ کش‌شده صبر نمی‌خواهد."""
+        with tempfile.TemporaryDirectory() as d:
+            net = {"n": 0}
+            made = {1: True, 2: False, 3: False, 4: True, 5: True}
+
+            def fn(k):
+                if made[k]:
+                    net["n"] += 1
+            waits = []
+            run_items([1, 2, 3, 4, 5], fn, StateStore(os.path.join(d, "s.json")), "x", log=lambda m: None, delay=3,
+                      sleep=waits.append, request_counter=lambda: net["n"])
+            # صبر قبل از ۲ (بعد از ۱: درخواست شد) ✓؛ قبل از ۳ (بعد از ۲: کش) ✗؛ قبل از ۴ (بعد از ۳: کش) ✗؛ قبل از ۵ ✓
+            self.assertEqual(waits, [3, 3])
+
+    def test_delay_applied_after_failed_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            net = {"n": 0}
+
+            def fn(k):
+                net["n"] += 1
+                if k == 1:
+                    raise LLMInvalidResponse("خالی")
+            waits = []
+            run_items([1, 2], fn, StateStore(os.path.join(d, "s.json")), "x", log=lambda m: None, delay=3,
+                      sleep=waits.append, request_counter=lambda: net["n"])
+            self.assertEqual(waits, [3])
+
+    def test_request_counter_for_cached_client(self):
+        from exambank.client import request_counter_for
+        with tempfile.TemporaryDirectory() as d:
+            mock = MockLLMClient({"t": {"x": 1}})
+            c = CachedClient(mock, DiskCache(d), "m")
+            counter = request_counter_for(c)
+            c.generate_json(task="t", system_prompt="", parts=[("text", "a")])
+            self.assertEqual(counter(), 1)
+            c.generate_json(task="t", system_prompt="", parts=[("text", "a")])   # کش
+            self.assertEqual(counter(), 1)
+            self.assertIsNone(request_counter_for(mock))                          # بدون کش: همیشه فاصله
+
     def test_delay_between_requests_only(self):
         with tempfile.TemporaryDirectory() as d:
             st = StateStore(os.path.join(d, "state.json"))

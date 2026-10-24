@@ -153,6 +153,13 @@ class CachedClient(LLMClient):
         return result
 
 
+def request_counter_for(client):
+    """شمارنده‌ی درخواست‌های واقعی (miss‌های کش)؛ برای کلاینت بدون کش None (همیشه فاصله اعمال می‌شود)."""
+    if isinstance(client, CachedClient):
+        return lambda: client.cache.misses
+    return None
+
+
 class GeminiClient(LLMClient):
     """پیاده‌سازی واقعی. در این محیط اجرا/تست نشده (google-genai نصب نیست)؛
     منطق تشخیص خطا و پاسخ نامعتبر در توابع بالا تست شده است."""
